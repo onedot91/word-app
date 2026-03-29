@@ -105,7 +105,10 @@ export default function App() {
         },
       });
 
-      const jsonStr = response.text || '{}';
+      let jsonStr = response.text || '{}';
+      // AI가 마크다운(```json ... ```) 형태로 응답할 경우를 대비해 텍스트 정제
+      jsonStr = jsonStr.replace(/```json/gi, '').replace(/```/g, '').trim();
+      
       const parsedResult = JSON.parse(jsonStr) as DictionaryResult;
       
       if (!parsedResult.word || parsedResult.meanings.length === 0) {
@@ -113,9 +116,10 @@ export default function App() {
       } else {
         setResult(parsedResult);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError('오류가 발생했어요. 다시 시도해주세요.');
+      // 에러 메시지를 화면에 표시하여 원인 파악 (할당량 초과, JSON 파싱 에러 등)
+      setError(`오류가 발생했어요: ${err?.message || '다시 시도해주세요.'}`);
     } finally {
       setLoading(false);
     }
