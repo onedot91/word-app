@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+@layer base {
+  .markdown-body-inline p {
+    @apply inline;
+  }
+  .markdown-body-inline strong {
+    @apply font-bold text-blue-600;
+  }
+}
