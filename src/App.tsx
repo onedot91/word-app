@@ -4,7 +4,13 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiInstance: GoogleGenAI | null = null;
+const getAI = () => {
+  if (!aiInstance) {
+    aiInstance = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  }
+  return aiInstance;
+};
 
 interface Meaning {
   meaning: string;
@@ -48,6 +54,7 @@ export default function App() {
     setShowMeanings(false);
 
     try {
+      const ai = getAI();
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: `다음 낱말을 초등학생이 이해하기 쉽게 설명하고, 각 글자(음절)의 한자 어원을 분석해줘.
