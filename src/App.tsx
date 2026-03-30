@@ -983,6 +983,9 @@ export default function App() {
                                           {selectedSyllable.hanjaChar}
                                         </span>
                                       )}
+                                      <span className="pb-1 text-lg font-black text-[#17366b]">
+                                        이 들어간 낱말
+                                      </span>
                                     </div>
                                   </div>
                                 </div>
@@ -1193,11 +1196,7 @@ export default function App() {
                   layout
                   className="order-1 relative isolate w-full p-8 bg-white rounded-[2.2rem] shadow-sm border-2 border-slate-200/60 flex flex-col min-h-0 overflow-y-auto custom-scrollbar"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-4 mb-6 shrink-0">
-                    <div className="flex items-center">
-                      <h2 className="text-2xl font-black text-[#17366b]">글자별 이해</h2>
-                    </div>
-
+                  <div className="flex flex-wrap items-center justify-end gap-4 mb-6 shrink-0">
                     {!showSearchResult && !isSearching && (
                       <button
                         onClick={handleRevealSearchResult}
@@ -1286,6 +1285,9 @@ export default function App() {
                                       {selectedSyllable.hanjaChar}
                                     </span>
                                   )}
+                                  <span className="pb-1 text-2xl font-black text-[#17366b]">
+                                    이 들어간 낱말
+                                  </span>
                                 </div>
                               </div>
                             </div>
