@@ -1,10 +1,11 @@
-import React, { startTransition, useRef, useState } from 'react';
-import { Search, Loader2, Lightbulb, ChevronRight } from 'lucide-react';
+import React, { startTransition, useEffect, useRef, useState } from 'react';
+import { Search, Loader2, ChevronRight } from 'lucide-react';
 import { GoogleGenAI, Type } from '@google/genai';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
 
 const SEARCH_MODEL = 'gemini-3-flash-preview';
+const MOBILE_MEDIA_QUERY = '(max-width: 1023px)';
 
 const normalizeEnvValue = (value?: string) => {
   const trimmed = value?.trim() ?? '';
@@ -189,6 +190,41 @@ const sanitizeSyllables = (word: string, syllables?: Syllable[]): Syllable[] => 
   });
 };
 
+const getMobileMatch = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.matchMedia(MOBILE_MEDIA_QUERY).matches;
+};
+
+const useIsMobileLayout = () => {
+  const [isMobile, setIsMobile] = useState(getMobileMatch);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia(MOBILE_MEDIA_QUERY);
+    setIsMobile(mediaQuery.matches);
+
+    const handleChange = (event: MediaQueryListEvent) => {
+      setIsMobile(event.matches);
+    };
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handleChange);
+      return () => mediaQuery.removeEventListener('change', handleChange);
+    }
+
+    mediaQuery.addListener(handleChange);
+    return () => mediaQuery.removeListener(handleChange);
+  }, []);
+
+  return isMobile;
+};
+
 type LoadingBuddyTone = 'insight' | 'meaning';
 
 interface LoadingBuddyProps {
@@ -280,11 +316,10 @@ function LoadingBuddy({
       <div className="relative flex flex-col items-center gap-5 text-center">
         {badgeText && (
           <motion.div
-            className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-black ${palette.badge}`}
+            className={`inline-flex items-center rounded-full border px-4 py-2 text-sm font-black ${palette.badge}`}
             animate={{ y: [0, -4, 0] }}
             transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
           >
-            <Lightbulb className={`h-4 w-4 ${palette.icon}`} />
             {badgeText}
           </motion.div>
         )}
@@ -305,14 +340,6 @@ function LoadingBuddy({
               {char}
             </motion.div>
           ))}
-
-          <motion.div
-            className={`ml-1 flex h-16 w-16 items-center justify-center rounded-full border-2 shadow-md ${palette.iconWrap}`}
-            animate={{ y: [0, -14, 0], rotate: [-8, 8, -8] }}
-            transition={{ duration: 2.1, repeat: Infinity, ease: 'easeInOut' }}
-          >
-            <Lightbulb className={`h-8 w-8 ${palette.icon}`} />
-          </motion.div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -346,16 +373,24 @@ interface RelatedWordChipProps {
   word: string;
   highlightChar: string;
   index: number;
+  compact?: boolean;
 }
 
-function RelatedWordChip({ word, highlightChar, index }: RelatedWordChipProps) {
+function RelatedWordChip({
+  word,
+  highlightChar,
+  index,
+  compact = false,
+}: RelatedWordChipProps) {
   const chars = Array.from(word);
   const hasHighlight = chars.some((char) => char === highlightChar);
-  const tiltClass = index % 2 === 0 ? '-rotate-[1.8deg]' : 'rotate-[1.8deg]';
+  const tiltClass = compact ? '' : index % 2 === 0 ? '-rotate-[1.2deg]' : 'rotate-[1.2deg]';
 
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-[1.8rem] border-2 border-[#9fc0ff] bg-gradient-to-b from-white to-[#eef4ff] px-4 py-3 text-2xl font-black shadow-[0_10px_24px_rgba(47,99,255,0.16)] ${tiltClass}`}
+      className={`inline-flex items-center gap-2 border-[3px] border-[#9fc0ff] bg-white font-black text-slate-700 shadow-[0_14px_28px_rgba(47,99,255,0.14)] ${tiltClass} ${
+        compact ? 'rounded-[1.75rem] px-3 py-2 text-xl' : 'rounded-[2rem] px-4 py-3 text-3xl'
+      }`}
       aria-label={hasHighlight ? `${word}에서 ${highlightChar}가 들어간 자리` : word}
     >
       {chars.map((char, index) => {
@@ -367,17 +402,55 @@ function RelatedWordChip({ word, highlightChar, index }: RelatedWordChipProps) {
             initial={{ scale: 0.88, y: 4 }}
             animate={{ scale: 1, y: 0 }}
             transition={{ duration: 0.24, delay: index * 0.05 }}
-            className="inline-flex min-w-[2.2rem] items-center justify-center rounded-full bg-[#d9386a] px-2 py-1 text-white ring-2 ring-[#ffc7da]"
+            className={`inline-flex items-center justify-center rounded-full bg-[#e33f78] text-white ring-[3px] ring-[#ffd3e2] ${
+              compact ? 'h-11 min-w-[2.75rem] px-2 text-2xl' : 'h-[3.25rem] min-w-[3.25rem] px-3 text-3xl'
+            }`}
           >
             {char}
           </motion.span>
         ) : (
-          <span key={`${word}-${index}`} className="text-slate-700">
+          <span key={`${word}-${index}`} className={compact ? 'text-2xl' : 'text-4xl'}>
             {char}
           </span>
         );
       })}
     </span>
+  );
+}
+
+interface RelatedWordShowcaseProps {
+  words?: string[];
+  highlightChar: string;
+  compact?: boolean;
+}
+
+function RelatedWordShowcase({
+  words,
+  highlightChar,
+  compact = false,
+}: RelatedWordShowcaseProps) {
+  if (!words?.length) {
+    return null;
+  }
+
+  return (
+    <div
+      className={`rounded-[1.8rem] border-2 border-[#bfd3ff] bg-white/85 ${
+        compact ? 'mt-4 p-4' : 'mt-5 p-5'
+      }`}
+    >
+      <div className={`flex flex-wrap ${compact ? 'gap-2.5' : 'gap-3'}`}>
+        {words.map((word, index) => (
+          <RelatedWordChip
+            key={`${word}-${index}`}
+            word={word}
+            highlightChar={highlightChar}
+            index={index}
+            compact={compact}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -446,6 +519,7 @@ const fetchSyllableDetails = async (query: string): Promise<Syllable[]> => {
 };
 
 export default function App() {
+  const isMobile = useIsMobileLayout();
   const hasApiKey = Boolean(GEMINI_API_KEY);
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<DictionaryResult | null>(null);
@@ -646,6 +720,395 @@ export default function App() {
     Boolean(result) && isSearching && !result?.syllables && !showWordInsightPanel && !showSearchResultPanel;
   const showRevealCard = false;
   const isInitial = !result && !isSearching;
+  const mobileStatusTags: string[] = [];
+
+  if (result) {
+    mobileStatusTags.push(isSearching ? '글자 분석 중' : '검색 완료');
+
+    if (hasHanja) {
+      mobileStatusTags.push('한자 풀이 가능');
+    } else if (result.syllables) {
+      mobileStatusTags.push('뜻 중심 보기');
+    }
+
+    if (showSearchResultPanel) {
+      mobileStatusTags.push(isLoadingMeanings && !result.meanings ? '뜻 불러오는 중' : '뜻 카드 열림');
+    }
+  }
+
+  if (isMobile) {
+    return (
+      <div className="min-h-[100dvh] bg-[radial-gradient(circle_at_top,#eef4ff_0%,#f8fafc_42%,#fff5f9_100%)] px-4 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
+        <div className="mx-auto max-w-xl">
+          <div className="sticky top-0 z-20 -mx-4 border-b border-white/70 bg-[#f8fafc]/90 px-4 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] backdrop-blur-xl">
+            <div className="space-y-3">
+              <div className="flex items-start justify-between gap-3 px-1">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.22em] text-[#4e6891]">
+                    Mobile Search
+                  </p>
+                  <h1 className="mt-2 text-2xl font-black text-[#17366b]">낱말 사전</h1>
+                </div>
+
+                {result && (
+                  <div className="rounded-full border border-[#9fc0ff] bg-white/90 px-4 py-2 text-sm font-black text-[#245cff] shadow-sm">
+                    {result.word}
+                  </div>
+                )}
+              </div>
+
+              <motion.form
+                layout
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35 }}
+                onSubmit={handleSearch}
+                className="rounded-[1.75rem] border border-white/80 bg-white/92 p-3 shadow-[0_18px_45px_rgba(15,23,42,0.12)] backdrop-blur-xl"
+              >
+                <label
+                  htmlFor="mobile-word-search"
+                  className="block px-1 text-xs font-black uppercase tracking-[0.22em] text-[#4e6891]"
+                >
+                  찾고 싶은 낱말
+                </label>
+
+                <div className="mt-3 flex items-center gap-3">
+                  <input
+                    id="mobile-word-search"
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="예: 선택, 운동, 가족"
+                    className="min-w-0 flex-1 rounded-[1.3rem] border-2 border-slate-200 bg-[#f8fbff] px-4 py-4 text-lg font-bold text-slate-800 outline-none transition focus:border-[#245cff] focus:ring-4 focus:ring-[#dce7ff] placeholder:text-slate-400"
+                    disabled={isSearching}
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSearching || !query.trim() || !hasApiKey}
+                    className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.25rem] border-2 border-[#ffc7da] bg-[#fff0f6] text-[#d9386a] shadow-[0_12px_24px_rgba(217,56,106,0.16)] transition hover:-translate-y-0.5 hover:bg-[#ffe4ef] disabled:opacity-50"
+                  >
+                    {isSearching ? (
+                      <Loader2 className="h-6 w-6 animate-spin text-[#d9386a]" />
+                    ) : (
+                      <Search className="h-6 w-6" />
+                    )}
+                  </button>
+                </div>
+              </motion.form>
+
+              {!hasApiKey && (
+                <div className="w-full rounded-[1.6rem] border border-[#ffc7da] bg-[#fff1f6] px-4 py-4 text-sm font-bold text-[#9b355f]">
+                  검색을 하려면 `.env.local`에 `GEMINI_API_KEY="..."` 또는
+                  `VITE_GEMINI_API_KEY="..."`를 넣어 주세요.
+                </div>
+              )}
+
+              {error && (
+                <motion.div
+                  key="mobile-error"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="rounded-[1.6rem] bg-red-50 px-4 py-3 text-center text-sm font-bold text-red-600"
+                >
+                  {error}
+                </motion.div>
+              )}
+
+              {mobileStatusTags.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {mobileStatusTags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 text-xs font-black text-slate-600 shadow-sm"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-4 pt-4">
+            {isInitial && !error && (
+              <motion.section
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35 }}
+                className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-[#17366b] via-[#245cff] to-[#d9386a] p-6 text-white shadow-[0_30px_70px_rgba(36,92,255,0.28)]"
+              >
+                <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/12 blur-2xl" />
+                <div className="absolute -bottom-12 left-0 h-28 w-28 rounded-full bg-[#ffd1e1]/25 blur-2xl" />
+
+                <div className="relative">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-[0.2em] text-white/80">
+                    <Search className="h-3.5 w-3.5" />
+                    Mobile Layout
+                  </div>
+
+                  <h2 className="mt-4 text-3xl font-black leading-tight">
+                    손안에서 바로 보는
+                    <br />
+                    낱말 탐험
+                  </h2>
+                  <p className="mt-3 text-sm leading-6 text-white/84">
+                    모바일에서는 검색, 글자 풀이, 뜻 보기를 세로 카드 흐름으로 나눠서 보여줘요.
+                  </p>
+
+                  <div className="mt-5 grid grid-cols-2 gap-3">
+                    <div className="rounded-[1.4rem] border border-white/15 bg-white/10 p-4 backdrop-blur">
+                      <p className="text-xs font-black uppercase tracking-[0.18em] text-white/70">탐색</p>
+                      <p className="mt-2 text-lg font-black">글자 단위 풀이</p>
+                    </div>
+                    <div className="rounded-[1.4rem] border border-white/15 bg-white/10 p-4 backdrop-blur">
+                      <p className="text-xs font-black uppercase tracking-[0.18em] text-white/70">예문</p>
+                      <p className="mt-2 text-lg font-black">쉬운 뜻과 문장</p>
+                    </div>
+                  </div>
+                </div>
+              </motion.section>
+            )}
+
+            <AnimatePresence mode="wait">
+              {result && !error && (
+                <motion.div
+                  key={`mobile-${result.word}-${showSearchResultPanel}-${showWordInsightPanel}`}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -16 }}
+                  className="space-y-4"
+                >
+                  {showWordInsightPanel && (
+                    <motion.section
+                      layout
+                      className="relative isolate w-full rounded-[2rem] border-2 border-slate-200/60 bg-white p-5 shadow-sm"
+                    >
+                      <div className="mb-5 space-y-2">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="space-y-2">
+                            <span className="inline-flex rounded-full border border-[#9fc0ff] bg-[#eef4ff] px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-[#245cff]">
+                              글자 풀이
+                            </span>
+                            <h2 className="text-2xl font-black text-[#17366b]">낱말 속 글자를 살펴봐요</h2>
+                          </div>
+
+                          {!showSearchResult && !isSearching && (
+                            <button
+                              onClick={handleRevealSearchResult}
+                              disabled={isLoadingMeanings}
+                              className="inline-flex w-full items-center justify-center gap-2 rounded-full border-2 border-[#ffc7da] bg-[#fff0f6] px-5 py-3 text-base font-black text-[#d9386a] transition-all shadow-sm shadow-[0_10px_20px_rgba(217,56,106,0.16)] hover:-translate-y-0.5 hover:bg-[#ffe4ef] disabled:opacity-60"
+                            >
+                              {isLoadingMeanings ? (
+                                <>
+                                  <Loader2 className="h-5 w-5 animate-spin" />
+                                  뜻 불러오는 중
+                                </>
+                              ) : (
+                                <>
+                                  뜻도 보기
+                                  <ChevronRight className="h-5 w-5" />
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+
+                        <p className="text-sm font-bold text-[#4e6891]">
+                          눌러서 어떤 한자가 숨어 있는지 찾아보세요.
+                        </p>
+                      </div>
+
+                      {isSearching && !result.syllables && (
+                        <LoadingBuddy
+                          word={result.word}
+                          ariaLabel="글자 풀이를 준비하는 중"
+                          tone="insight"
+                        />
+                      )}
+
+                      {!isSearching && detailError && !result.syllables && (
+                        <div className="rounded-[1.6rem] border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+                          {detailError}
+                        </div>
+                      )}
+
+                      {hasHanja && result.syllables && (
+                        <>
+                          <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
+                            {result.syllables.map((syllable, index) => (
+                              <button
+                                key={index}
+                                onClick={() => handleSyllableClick(index, syllable.isHanja)}
+                                disabled={!syllable.isHanja}
+                                className={`shrink-0 rounded-[1.35rem] font-black transition-all ${
+                                  !syllable.isHanja
+                                    ? 'h-[4.75rem] min-w-[4.75rem] bg-slate-100 text-3xl text-slate-400'
+                                    : selectedSyllableIndex === index
+                                      ? 'h-[4.75rem] min-w-[4.75rem] scale-105 bg-gradient-to-br from-[#2f63ff] to-[#245cff] text-3xl text-white shadow-[0_16px_30px_rgba(47,99,255,0.28)] ring-4 ring-[#dce7ff]'
+                                      : 'h-[4.75rem] min-w-[4.75rem] border-2 border-[#9fc0ff] bg-gradient-to-b from-white to-[#eef4ff] text-3xl text-[#245cff] shadow-[0_12px_24px_rgba(47,99,255,0.16)]'
+                                }`}
+                              >
+                                {syllable.char}
+                              </button>
+                            ))}
+                          </div>
+
+                          {!selectedSyllable && (
+                            <div className="rounded-[1.6rem] border-2 border-dashed border-[#9fc0ff] bg-[#f8fbff] p-4 text-center text-sm font-bold text-[#4e6891]">
+                              글자를 눌러 보면 어떤 한자가 들어 있는지 볼 수 있어요.
+                            </div>
+                          )}
+
+                          <AnimatePresence mode="wait">
+                            {selectedSyllable && (
+                              <motion.div
+                                key={`mobile-${selectedSyllable.char}-${selectedSyllableIndex}`}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                className="mt-4 overflow-hidden rounded-[2rem] border-2 border-[#9fc0ff] bg-gradient-to-br from-white via-[#eef4ff] to-[#fff0f6] p-5 shadow-[0_20px_45px_rgba(47,99,255,0.12)]"
+                              >
+                                <div className="flex flex-wrap items-start justify-between gap-4">
+                                  <div>
+                                    <p className="text-xs font-black uppercase tracking-[0.22em] text-[#4e6891]">
+                                      선택한 글자
+                                    </p>
+                                    <div className="mt-2 flex items-end gap-3">
+                                      <span className="text-4xl font-black text-[#17366b]">
+                                        {selectedSyllable.char}
+                                      </span>
+                                      {selectedSyllable.hanjaChar && (
+                                        <span className="text-2xl font-black text-[#d9386a]">
+                                          {selectedSyllable.hanjaChar}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <RelatedWordShowcase
+                                  words={selectedSyllable.relatedWords}
+                                  highlightChar={selectedSyllable.char}
+                                  compact
+                                />
+
+                                <p className="mb-4 mt-5 text-lg font-black text-[#d9386a]">무슨 뜻일까요?</p>
+
+                                {!isSelectedSyllableRevealed ? (
+                                  <button
+                                    onClick={handleRevealHint}
+                                    className="flex w-full items-center justify-center gap-2 rounded-full border-2 border-white/70 bg-gradient-to-r from-[#ff6b93] to-[#d9386a] px-5 py-3 text-lg font-black text-white shadow-md shadow-[0_14px_28px_rgba(217,56,106,0.26)] transition-all hover:-translate-y-1"
+                                  >
+                                    정답 확인하기
+                                    <ChevronRight className="h-5 w-5" />
+                                  </button>
+                                ) : (
+                                  <motion.div
+                                    initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    className="rounded-[1.8rem] border-4 border-[#dce7ff] bg-[#245cff] px-5 py-5 text-center text-2xl font-black text-white shadow-lg"
+                                  >
+                                    {selectedSyllable.hanjaMeaning ?? '뜻 풀이가 아직 없어요.'}
+                                  </motion.div>
+                                )}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </>
+                      )}
+                    </motion.section>
+                  )}
+
+                  {showSearchResultPanel && (
+                    <motion.section
+                      layout
+                      className="relative isolate w-full rounded-[2rem] border-2 border-slate-200/60 bg-white p-5 shadow-sm"
+                    >
+                      <div className="mb-5 space-y-2">
+                        <span className="inline-flex rounded-full border border-[#ffc7da] bg-[#fff0f6] px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-[#d9386a]">
+                          뜻 보기
+                        </span>
+                        <h2 className="text-3xl font-black text-[#17366b]">{result.word}</h2>
+                        <p className="text-sm font-bold text-slate-500">
+                          쉬운 설명과 예문을 한 번에 살펴봐요.
+                        </p>
+                      </div>
+
+                      {meaningError && (
+                        <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-600">
+                          {meaningError}
+                        </div>
+                      )}
+
+                      {isLoadingMeanings && !result.meanings && (
+                        <div className="space-y-4">
+                          <LoadingBuddy word={result.word} ariaLabel="뜻풀이를 불러오는 중" tone="meaning" />
+
+                          <div className="space-y-3 animate-pulse">
+                            {Array.from({ length: 2 }).map((_, index) => (
+                              <div
+                                key={index}
+                                className="h-24 rounded-[1.5rem] border-2 border-slate-200 bg-slate-50"
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {result.meanings && (
+                        <div className="space-y-4">
+                          {result.meanings.map((item, index) => (
+                            <div
+                              key={index}
+                              className={`overflow-hidden rounded-[1.7rem] border-2 border-slate-200 bg-slate-50 ${
+                                index % 2 === 0 ? '-rotate-[0.15deg]' : 'rotate-[0.15deg]'
+                              }`}
+                            >
+                              <div className="flex items-start gap-3 border-b-2 border-slate-100 bg-white p-4">
+                                <span
+                                  className={`flex h-9 w-9 items-center justify-center rounded-[0.9rem] bg-gradient-to-br from-[#ff6b93] to-[#d9386a] text-base font-black text-white shadow-md shadow-[0_10px_20px_rgba(217,56,106,0.2)] ${
+                                    index % 2 === 0 ? '-rotate-[3deg]' : 'rotate-[3deg]'
+                                  }`}
+                                >
+                                  {index + 1}
+                                </span>
+                                <p className="pt-0.5 text-lg font-bold leading-snug text-[#214c88]">
+                                  {item.meaning}
+                                </p>
+                              </div>
+
+                              <div className="flex items-start gap-3 bg-slate-50 p-4">
+                                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#fff0f6] text-lg text-[#d9386a] shadow-sm">
+                                  예
+                                </span>
+                                <div className="markdown-body-inline break-keep pt-0.5 text-base leading-snug text-slate-600">
+                                  <Markdown>{item.example}</Markdown>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </motion.section>
+                  )}
+
+                  {showStandaloneLoadingPanel && (
+                    <motion.section
+                      layout
+                      className="relative isolate w-full rounded-[2rem] border-2 border-slate-200/60 bg-white p-5 shadow-sm"
+                    >
+                      <LoadingBuddy word={result.word} ariaLabel="낱말을 살피는 중" tone="meaning" />
+                    </motion.section>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -731,10 +1194,7 @@ export default function App() {
                   className="order-1 relative isolate w-full p-8 bg-white rounded-[2.2rem] shadow-sm border-2 border-slate-200/60 flex flex-col min-h-0 overflow-y-auto custom-scrollbar"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-4 mb-6 shrink-0">
-                    <div className="flex items-center gap-3">
-                      <span className="-rotate-6 w-12 h-12 rounded-[1.35rem] border-2 border-[#ffc7da] bg-[#fff0f6] text-[#d9386a] flex items-center justify-center shadow-sm shadow-[0_10px_20px_rgba(217,56,106,0.16)]">
-                        <Lightbulb className="w-6 h-6" />
-                      </span>
+                    <div className="flex items-center">
                       <h2 className="text-2xl font-black text-[#17366b]">글자별 이해</h2>
                     </div>
 
@@ -815,7 +1275,7 @@ export default function App() {
                             exit={{ opacity: 0, y: -10 }}
                             className="mt-6 relative isolate overflow-hidden rounded-[2.2rem] border-2 border-[#9fc0ff] bg-gradient-to-br from-white via-[#eef4ff] to-[#fff0f6] p-6 shadow-[0_20px_45px_rgba(47,99,255,0.12)]"
                           >
-                            <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
+                            <div className="flex flex-wrap items-start justify-between gap-4">
                               <div>
                                 <div className="flex items-end gap-3">
                                   <span className="text-5xl font-black text-[#17366b]">
@@ -828,23 +1288,14 @@ export default function App() {
                                   )}
                                 </div>
                               </div>
-
-                              {selectedSyllable.relatedWords?.length ? (
-                                <div className="flex flex-wrap justify-end gap-3">
-                                  {selectedSyllable.relatedWords.map((word, index) => (
-                                    <RelatedWordChip
-                                      key={`${word}-${index}`}
-                                      word={word}
-                                      highlightChar={selectedSyllable.char}
-                                      index={index}
-                                    />
-                                  ))}
-                                </div>
-                              ) : null}
                             </div>
 
-                            <p className="text-2xl font-bold text-[#d9386a] mb-6">무슨 뜻일까요?</p>
+                            <RelatedWordShowcase
+                              words={selectedSyllable.relatedWords}
+                              highlightChar={selectedSyllable.char}
+                            />
 
+                            <p className="mt-6 mb-6 text-2xl font-bold text-[#d9386a]">무슨 뜻일까요?</p>
                             {!isSelectedSyllableRevealed ? (
                               <button
                                 onClick={handleRevealHint}
@@ -874,9 +1325,6 @@ export default function App() {
                   layout
                   className="order-1 w-full p-8 bg-white rounded-[2rem] shadow-sm border-2 border-slate-200/60 flex flex-col items-center justify-center text-center gap-6 min-h-0"
                 >
-                  <div className="w-16 h-16 rounded-[1.5rem] bg-blue-50 text-blue-700 flex items-center justify-center">
-                    <Lightbulb className="w-8 h-8" />
-                  </div>
                   <div className="space-y-3">
                     <p className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400">
                       뜻풀이
