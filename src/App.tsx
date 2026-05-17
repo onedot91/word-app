@@ -31,6 +31,23 @@ const basicCache = new Map<string, MeaningResult>();
 const meaningDetailCache = new Map<string, MeaningResult>();
 const detailCache = new Map<string, DetailResult>();
 
+const prefetchMeaningExamples = (word: string, cacheKey: string, meaning?: string) => {
+  if (!meaning) {
+    return;
+  }
+
+  const meaningKey = getDetailCacheKey(cacheKey, meaning);
+  if (meaningDetailCache.has(meaningKey)) {
+    return;
+  }
+
+  void fetchMeaningResult(word, meaning)
+    .then((value) => {
+      meaningDetailCache.set(meaningKey, value);
+    })
+    .catch(() => undefined);
+};
+
 const getAI = () => {
   if (!GEMINI_API_KEY) {
     throw new Error(MISSING_API_KEY_MESSAGE);
@@ -67,6 +84,18 @@ interface MeaningResult {
   baseWord?: string;
   invalidReason?: string;
   meanings: Meaning[];
+}
+
+class InvalidWordError extends Error {
+  baseWord?: string;
+  originalWord: string;
+
+  constructor(message: string, originalWord: string, baseWord?: string) {
+    super(message);
+    this.name = 'InvalidWordError';
+    this.originalWord = originalWord;
+    this.baseWord = baseWord;
+  }
 }
 
 interface DictionaryResult {
@@ -190,7 +219,7 @@ const sanitizeMeanings = (query: string, payload: MeaningResult, limit = 4): Mea
         ? `"${query}"는 사전 낱말이 아니에요. "${baseWord}"로 찾아보세요.`
         : `"${query}"는 사전에서 찾을 수 없는 낱말이에요.`);
 
-    throw new Error(reason);
+    throw new InvalidWordError(reason, query, baseWord || undefined);
   }
 
   const meanings = Array.isArray(payload.meanings)
@@ -263,6 +292,15 @@ const sanitizeDetailResult = (
     syllables,
     combinedMeaning,
   };
+};
+
+const hasUsableDetailResult = (value: DetailResult) => {
+  if (!value.syllables?.length) {
+    return false;
+  }
+
+  const hasHanja = value.syllables.some((syllable) => syllable.isHanja);
+  return !hasHanja || Boolean(value.combinedMeaning?.trim());
 };
 
 const getMobileMatch = () => {
@@ -739,8 +777,13 @@ const fetchMeaningResult = async (query: string, selectedMeaning?: string): Prom
 
 규칙:
 - 검색어가 실제 국어사전 표제어인지 먼저 판단해.
+- 표준국어대사전이나 우리말샘 같은 검증된 국어사전에 실린 표제어라고 확신할 때만 validWord를 true로 해.
+- 확신이 없으면 뜻을 지어내지 말고 validWord를 false로 해.
 - 활용형, 어미가 붙은 말, 조사/어미가 붙은 말, 오타, 없는 말이면 validWord를 false로 하고 meanings는 빈 배열로 둬.
 - 예: "굳어"는 "굳다"의 활용형이므로 validWord는 false, baseWord는 "굳다"로 써.
+- 예: "책을"은 조사 붙은 말이므로 validWord는 false, baseWord는 "책"으로 써.
+- 예: "먹었다"는 활용형이므로 validWord는 false, baseWord는 "먹다"로 써.
+- baseWord는 사전 표제어로 바로 검색할 수 있는 기본형일 때만 써.
 - 검색어가 실제 사전 표제어일 때만 validWord를 true로 해.
 - word는 검색어 그대로 적어.
 - meanings는 선택한 뜻에 맞는 예시를 정확히 3개 작성해.
@@ -757,8 +800,13 @@ const fetchMeaningResult = async (query: string, selectedMeaning?: string): Prom
 
 규칙:
 - 검색어가 실제 국어사전 표제어인지 먼저 판단해.
+- 표준국어대사전이나 우리말샘 같은 검증된 국어사전에 실린 표제어라고 확신할 때만 validWord를 true로 해.
+- 확신이 없으면 뜻을 지어내지 말고 validWord를 false로 해.
 - 활용형, 어미가 붙은 말, 조사/어미가 붙은 말, 오타, 없는 말이면 validWord를 false로 하고 meanings는 빈 배열로 둬.
 - 예: "굳어"는 "굳다"의 활용형이므로 validWord는 false, baseWord는 "굳다"로 써.
+- 예: "책을"은 조사 붙은 말이므로 validWord는 false, baseWord는 "책"으로 써.
+- 예: "먹었다"는 활용형이므로 validWord는 false, baseWord는 "먹다"로 써.
+- baseWord는 사전 표제어로 바로 검색할 수 있는 기본형일 때만 써.
 - 검색어가 실제 사전 표제어일 때만 validWord를 true로 해.
 - word는 검색어 그대로 적어.
 - meanings는 서로 다른 동형이의어 후보가 있으면 4개까지 작성해.
@@ -776,6 +824,7 @@ const fetchMeaningResult = async (query: string, selectedMeaning?: string): Prom
     contents: `너는 초등학교 3학년도 이해할 수 있게 낱말을 설명하는 도우미야.
 반드시 JSON만 반환해.
 없는 낱말이나 활용형을 그럴듯하게 설명하지 마.
+사전 표제어인지 확실하지 않으면 절대 추측해서 설명하지 마.
 validWord가 false이면 word, validWord, baseWord, invalidReason, meanings만 반환하고 meanings는 []로 둬.
 
 ${purpose}
@@ -860,6 +909,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [detailError, setDetailError] = useState('');
   const [meaningError, setMeaningError] = useState('');
+  const [searchNotice, setSearchNotice] = useState('');
   const [selectedSyllableIndex, setSelectedSyllableIndex] = useState<number | null>(null);
   const [selectedMeaningIndex, setSelectedMeaningIndex] = useState<number | null>(null);
   const [selectedMeaningText, setSelectedMeaningText] = useState<string | null>(null);
@@ -900,20 +950,6 @@ export default function App() {
     }
 
     setIsLoadingMeanings(true);
-    if (selectedMeaning) {
-      startTransition(() => {
-        setResult((current) => {
-          if (!current || normalizeKey(current.word) !== cacheKey) {
-            return current;
-          }
-
-          return {
-            ...current,
-            meanings: null,
-          };
-        });
-      });
-    }
 
     try {
       const meaningResult = await fetchMeaningResult(word, selectedMeaning ?? undefined).then((value) => {
@@ -961,47 +997,9 @@ export default function App() {
     cacheKey: string,
     searchId: number,
     selectedMeaning?: string,
-    prefetchedMeaning?: Promise<MeaningResult>,
   ) => {
     const detailKey = getDetailCacheKey(cacheKey, selectedMeaning);
     const cachedDetails = detailCache.get(detailKey) ?? null;
-    const revealPrefetchedMeaning = (meaningPromise: Promise<MeaningResult>) => {
-      setShowSearchResult(true);
-      setMeaningError('');
-      setIsLoadingMeanings(true);
-
-      void meaningPromise
-        .then((meaningResult) => {
-          if (activeSearchId.current !== searchId) {
-            return;
-          }
-
-          startTransition(() => {
-            setResult((current) => {
-              if (!current || normalizeKey(current.word) !== cacheKey) {
-                return current;
-              }
-
-              return {
-                ...current,
-                word: meaningResult.word,
-                meanings: meaningResult.meanings,
-              };
-            });
-          });
-        })
-        .catch((err) => {
-          if (activeSearchId.current === searchId) {
-            console.error(err);
-            setMeaningError(formatErrorMessage(err));
-          }
-        })
-        .finally(() => {
-          if (activeSearchId.current === searchId) {
-            setIsLoadingMeanings(false);
-          }
-        });
-    };
 
     setIsSearching(!cachedDetails);
     setDetailError('');
@@ -1025,11 +1023,7 @@ export default function App() {
       });
 
       if (!cachedDetails.syllables.some((syllable) => syllable.isHanja)) {
-        if (prefetchedMeaning) {
-          revealPrefetchedMeaning(prefetchedMeaning);
-        } else {
-          void loadSearchResult(word, cacheKey, searchId, selectedMeaning);
-        }
+        void loadSearchResult(word, cacheKey, searchId, selectedMeaning);
       }
       return;
     }
@@ -1060,11 +1054,7 @@ export default function App() {
       });
 
       if (!details.syllables.some((syllable) => syllable.isHanja)) {
-        if (prefetchedMeaning) {
-          revealPrefetchedMeaning(prefetchedMeaning);
-        } else {
-          void loadSearchResult(word, cacheKey, searchId, selectedMeaning);
-        }
+        void loadSearchResult(word, cacheKey, searchId, selectedMeaning);
       }
     } catch (err) {
       if (activeSearchId.current !== searchId) {
@@ -1091,105 +1081,155 @@ export default function App() {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return;
 
-    const cacheKey = normalizeKey(trimmedQuery);
-    const searchId = ++activeSearchId.current;
-    const cachedBasic = basicCache.get(cacheKey) ?? null;
+    const runSearch = async (
+      word: string,
+      notice = '',
+      allowBaseWordRetry = true,
+    ): Promise<void> => {
+      const cacheKey = normalizeKey(word);
+      const searchId = ++activeSearchId.current;
+      const cachedBasic = basicCache.get(cacheKey) ?? null;
 
-    setIsSearching(!cachedBasic);
-    setIsLoadingMeanings(!cachedBasic);
-    setError('');
-    setDetailError('');
-    setMeaningError('');
-    setSelectedSyllableIndex(null);
-    setSelectedMeaningIndex(null);
-    setSelectedMeaningText(null);
-    setRevealedSyllableIndexes(new Set());
-    setShowSearchResult(false);
-    setShowCombinedMeaning(false);
-
-    startTransition(() => {
-      setResult({
-        word: cachedBasic?.word ?? trimmedQuery,
-        meanings: cachedBasic?.meanings ?? null,
-        syllables: null,
-        combinedMeaning: null,
-      });
-    });
-
-    if (cachedBasic) {
-      setIsSearching(false);
-      setIsLoadingMeanings(false);
-
-      if (cachedBasic.meanings.length === 1) {
-        const meaning = cachedBasic.meanings[0]?.meaning;
-        const meaningKey = getDetailCacheKey(cacheKey, meaning);
-        const prefetchedMeaning =
-          meaningDetailCache.get(meaningKey)
-            ? Promise.resolve(meaningDetailCache.get(meaningKey) as MeaningResult)
-            : fetchMeaningResult(cachedBasic.word, meaning).then((value) => {
-                meaningDetailCache.set(meaningKey, value);
-                return value;
-              });
-        void prefetchedMeaning.catch(() => undefined);
-
-        setSelectedMeaningIndex(0);
-        setSelectedMeaningText(meaning ?? null);
-        await loadSyllableDetails(cachedBasic.word, cacheKey, searchId, meaning, prefetchedMeaning);
-      }
-      return;
-    }
-
-    try {
-      const meaningResult = await fetchMeaningResult(trimmedQuery).then((value) => {
-        basicCache.set(cacheKey, value);
-        return value;
-      });
-
-      if (activeSearchId.current !== searchId) {
-        return;
-      }
+      setIsSearching(!cachedBasic);
+      setIsLoadingMeanings(!cachedBasic);
+      setError('');
+      setDetailError('');
+      setMeaningError('');
+      setSearchNotice(notice);
+      setSelectedSyllableIndex(null);
+      setSelectedMeaningIndex(null);
+      setSelectedMeaningText(null);
+      setRevealedSyllableIndexes(new Set());
+      setShowSearchResult(false);
+      setShowCombinedMeaning(false);
 
       startTransition(() => {
         setResult({
-          word: meaningResult.word,
-          meanings: meaningResult.meanings,
+          word: cachedBasic?.word ?? word,
+          meanings: cachedBasic?.meanings ?? null,
           syllables: null,
           combinedMeaning: null,
         });
       });
 
-      if (meaningResult.meanings.length === 1) {
-        const meaning = meaningResult.meanings[0]?.meaning;
-        const meaningKey = getDetailCacheKey(cacheKey, meaning);
-        const prefetchedMeaning = fetchMeaningResult(meaningResult.word, meaning).then((value) => {
-          meaningDetailCache.set(meaningKey, value);
-          return value;
-        });
-        void prefetchedMeaning.catch(() => undefined);
+      if (cachedBasic) {
+        setIsSearching(false);
+        setIsLoadingMeanings(false);
 
-        setSelectedMeaningIndex(0);
-        setSelectedMeaningText(meaning ?? null);
-        await loadSyllableDetails(
-          meaningResult.word,
-          cacheKey,
-          searchId,
-          meaning,
-          prefetchedMeaning,
-        );
-      }
-    } catch (err) {
-      if (activeSearchId.current !== searchId) {
+        if (cachedBasic.meanings.length === 1) {
+          const meaning = cachedBasic.meanings[0]?.meaning;
+
+          setSelectedMeaningIndex(0);
+          setSelectedMeaningText(meaning ?? null);
+          prefetchMeaningExamples(cachedBasic.word, cacheKey, meaning);
+
+          await loadSyllableDetails(cachedBasic.word, cacheKey, searchId, meaning);
+        }
         return;
       }
 
-      console.error(err);
-      setMeaningError(formatErrorMessage(err));
-    } finally {
-      if (activeSearchId.current === searchId) {
-        setIsSearching(false);
-        setIsLoadingMeanings(false);
+      try {
+        const detailPrefetch = fetchSyllableDetails(word)
+          .then((value) => {
+            detailCache.set(cacheKey, value);
+            return value;
+          })
+          .catch(() => null);
+
+        const meaningResult = await fetchMeaningResult(word).then((value) => {
+          basicCache.set(cacheKey, value);
+          return value;
+        });
+
+        if (activeSearchId.current !== searchId) {
+          return;
+        }
+
+        startTransition(() => {
+          setResult({
+            word: meaningResult.word,
+            meanings: meaningResult.meanings,
+            syllables: null,
+            combinedMeaning: null,
+          });
+        });
+
+        if (meaningResult.meanings.length === 1) {
+          const meaning = meaningResult.meanings[0]?.meaning;
+
+          setSelectedMeaningIndex(0);
+          setSelectedMeaningText(meaning ?? null);
+          prefetchMeaningExamples(meaningResult.word, cacheKey, meaning);
+
+          const prefetchedDetails = await detailPrefetch;
+          if (activeSearchId.current !== searchId) {
+            return;
+          }
+
+          if (prefetchedDetails && hasUsableDetailResult(prefetchedDetails)) {
+            detailCache.set(getDetailCacheKey(cacheKey, meaning), {
+              syllables: prefetchedDetails.syllables,
+              combinedMeaning: prefetchedDetails.combinedMeaning,
+            });
+
+            startTransition(() => {
+              setResult((current) => {
+                if (!current || normalizeKey(current.word) !== cacheKey) {
+                  return current;
+                }
+
+                return {
+                  ...current,
+                  syllables: prefetchedDetails.syllables,
+                  combinedMeaning: prefetchedDetails.combinedMeaning,
+                };
+              });
+            });
+
+            if (!prefetchedDetails.syllables.some((syllable) => syllable.isHanja)) {
+              setShowSearchResult(true);
+            }
+            return;
+          }
+
+          await loadSyllableDetails(
+            meaningResult.word,
+            cacheKey,
+            searchId,
+            meaning,
+          );
+        }
+      } catch (err) {
+        if (activeSearchId.current !== searchId) {
+          return;
+        }
+
+        if (
+          allowBaseWordRetry &&
+          err instanceof InvalidWordError &&
+          err.baseWord &&
+          normalizeKey(err.baseWord) !== cacheKey
+        ) {
+          setQuery(err.baseWord);
+          await runSearch(
+            err.baseWord,
+            `"${err.originalWord}"는 기본형 "${err.baseWord}"로 찾아봤어요.`,
+            false,
+          );
+          return;
+        }
+
+        console.error(err);
+        setMeaningError(formatErrorMessage(err));
+      } finally {
+        if (activeSearchId.current === searchId) {
+          setIsSearching(false);
+          setIsLoadingMeanings(false);
+        }
       }
-    }
+    };
+
+    await runSearch(trimmedQuery);
   };
 
   const handleRevealSearchResult = async () => {
@@ -1205,24 +1245,15 @@ export default function App() {
 
     const cacheKey = normalizeKey(result.word);
     const meaning = result.meanings[index].meaning;
-    const meaningKey = getDetailCacheKey(cacheKey, meaning);
-    const prefetchedMeaning =
-      meaningDetailCache.get(meaningKey)
-        ? Promise.resolve(meaningDetailCache.get(meaningKey) as MeaningResult)
-        : fetchMeaningResult(result.word, meaning).then((value) => {
-            meaningDetailCache.set(meaningKey, value);
-            return value;
-          });
-    void prefetchedMeaning.catch(() => undefined);
 
     setSelectedMeaningIndex(index);
     setSelectedMeaningText(meaning);
+    prefetchMeaningExamples(result.word, cacheKey, meaning);
     await loadSyllableDetails(
       result.word,
       cacheKey,
       activeSearchId.current,
       meaning,
-      prefetchedMeaning,
     );
   };
 
@@ -1281,7 +1312,8 @@ export default function App() {
       ?.map((syllable, index) => ({ syllable, index }))
       .filter(({ syllable }) => syllable.isHanja)
       .every(({ index }) => revealedSyllableIndexes.has(index)) ?? false;
-  const canRevealCombinedMeaning = areAllHanjaSyllablesRevealed && Boolean(result?.combinedMeaning);
+  const canRevealCombinedMeaning =
+    hasHanja && areAllHanjaSyllablesRevealed && Boolean(result?.combinedMeaning);
   const combinedMeaningHighlights =
     result?.syllables
       ?.filter((syllable) => syllable.isHanja && syllable.hanjaMeaning)
@@ -1390,6 +1422,18 @@ export default function App() {
                   className="rounded-[1.6rem] bg-red-50 px-4 py-3 text-center text-sm font-bold text-red-600"
                 >
                   {error}
+                </motion.div>
+              )}
+
+              {searchNotice && !error && (
+                <motion.div
+                  key="mobile-search-notice"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="rounded-[1.6rem] border border-[#9fc0ff] bg-[#eef4ff] px-4 py-3 text-center text-sm font-bold text-[#245cff]"
+                >
+                  {searchNotice}
                 </motion.div>
               )}
 
@@ -1778,6 +1822,18 @@ export default function App() {
               className="p-4 bg-red-50 text-red-600 rounded-2xl text-center font-bold text-xl max-w-4xl mx-auto w-full shrink-0"
             >
               {error}
+            </motion.div>
+          )}
+
+          {searchNotice && !error && (
+            <motion.div
+              key="search-notice"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="max-w-4xl mx-auto w-full rounded-[2rem] border border-[#9fc0ff] bg-[#eef4ff] px-6 py-4 text-center text-[#245cff] font-black text-lg shrink-0"
+            >
+              {searchNotice}
             </motion.div>
           )}
 
