@@ -25,6 +25,8 @@ const MISSING_API_KEY_MESSAGE =
   'Gemini API 키가 없어요. 프로젝트 루트의 .env.local 파일에 GEMINI_API_KEY 또는 VITE_GEMINI_API_KEY를 넣어 주세요.';
 const INVALID_API_KEY_MESSAGE =
   'Gemini API 키가 유효하지 않아요. .env.local의 키가 정확한지 확인하거나 Google AI Studio에서 새 키를 발급해 넣어 주세요.';
+const EXPIRED_API_KEY_MESSAGE =
+  'Gemini API 키가 만료되었어요. Google AI Studio에서 새 키를 발급한 뒤 .env.local에 다시 넣어 주세요.';
 
 let aiInstance: GoogleGenAI | null = null;
 const basicCache = new Map<string, MeaningResult>();
@@ -168,6 +170,10 @@ const parseJsonResponse = <T,>(text?: string) => {
 
 const formatErrorMessage = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error ?? '');
+
+  if (/API key expired|key expired/i.test(message)) {
+    return EXPIRED_API_KEY_MESSAGE;
+  }
 
   if (/API_KEY_INVALID|API key not valid/i.test(message)) {
     return INVALID_API_KEY_MESSAGE;
